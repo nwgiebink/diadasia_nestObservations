@@ -53,7 +53,7 @@ guard <- read.csv("../data/diadasia_nestObs_tidy_guardDur.csv")
 guard <- filter(guard, nest_type == "guarded",
                      behavior == "guard") %>%
   select(nest, guard_duration = behavior_duration, year,
-         month, day, start_time, observation_seconds)
+         month, day, start_time)
 
 # clean raw data and add variable for guarded 
 nest_obs <- select(nest_obs_raw, -notes) %>%
