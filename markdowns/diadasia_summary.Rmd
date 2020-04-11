@@ -1,0 +1,136 @@
+---
+title: "Diadasia Observations Summary"
+author: "Noah Giebink"
+date: "4/10/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, warning=FALSE, message=FALSE)
+
+# packages
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(lme4)
+```
+
+# *Diadasia* nest site fieldwork 
+
+I assisted Dr. Stephen Buchmann with an observational study of the behavior and natural history of *D. rinconis* in late spring, 2019. I helped to calculate the frequency and duration of various behaviors performed by male bees vying for mates at a large D. rinconis aggregation near Oro Valley, Arizona. Rather than struggling to follow individual males I observed behaviors across ten focal nests for ten minutes each. I observed the nests in spatial pairs by selecting one nest guarded by a male and another unguarded roughly within one meter of each other, at about the same time, and in alternating observation order (to control for spatial and temporal variability). I selected each nest pair location haphazardly to achieve relatively even coverage of the nest aggregation. I recorded male behaviors as defined in the ethogram in Table 1.
+
+```{r}
+# ethogram
+input <- c('Approach and Go', 'Bee hovers over nest entrance without physical contact',
+         'Touch and Go',
+         'Brief physical contact with nest entrance wihtout full body entry',
+         'Guarding', 'Prolonged presence of male inside nest entrance; male typically straddles entrance',
+         'Deep Entry', 'Full body entry into nest entrance',
+         'Fight', 'Prolonged physical contact between males on or immediately near the nest entrance; typically follows guarding; often involves paired somersaults',
+         '*Multiple bees entered hole', 'deep entry by >1 male resulting in >1 males simultaneously in nest')
+df <- matrix(input, nrow = 6, ncol = 2, byrow = T)
+df <- data.frame(df)
+df <- dplyr::select(df, Behavior = X1, Definition = X2)
+
+kable(df, caption = 'Diadasia nest site ethogram.') %>%
+  kable_styling(bootstrap_options = 'striped') %>%
+  column_spec(column = 2, width = '40em') %>%
+  column_spec(column = 1, width = '10em') %>%
+  footnote(general = '*`Multiple bees entered hole` requires >/=2 deep entries, with each male entering deeply counted as one deep entry',
+           general_title = '')
+
+```
+
+
+
+
+```{r}
+# data 
+  # raw observations
+nest_obs_raw <- read.csv("../data/diadasia_nest_observations2_edit.csv")
+  # Guard durations
+guard <- read.csv("../data/diadasia_nestObs_tidy_guardDur.csv")
+guard <- filter(guard, nest_type == "guarded",
+                     behavior == "guard") %>%
+  select(nest, guard_duration = behavior_duration, year,
+         month, day, start_time, observation_seconds)
+
+# clean raw data and add variable for guarded 
+nest_obs <- select(nest_obs_raw, -notes) %>%
+  mutate(nest_type = ifelse(guard > 0, "Guarded", "Unguarded")) %>%
+  mutate(pair = if_else(nest%%2==0, nest/2, (nest+1)/2))
+
+# Tidy data without behavior_duration
+
+nest_obs_long <- gather(nest_obs, behavior, count,
+                             -nest, -observation_seconds, -start_time, -day,
+                             -month, -year, -nest_type, -pair) %>%
+  arrange((nest), desc(nest)) %>%
+  select(nest, nest_type, behavior, count, year, month, day, 
+         start_time)
+
+# Write files
+  # guard data (with durations)
+write_csv(guard, path = "../data/diadasia_guardDurations.csv", col_names = TRUE)
+  # behavior counts data (no durations; individual behaviors summarized into counts)
+write_csv(nest_obs, "../data/diadasia_nestObs_final.csv")
+
+```
+
+
+
+```{r}
+# visualization ----
+# activity count by nest type
+ggplot(nest_obs_long, aes(y = count, fill = behavior)) +
+  geom_boxplot() +
+  facet_wrap(~nest_type) +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+Figure 1. Activity frequency by nest type.
+
+
+# Do any of the behaviors differ significantly across nest types?
+
+Table 2. There is not a significant difference in any behaviors across guarded and unguarded nests, except for 'fight' and 'guard', which are expected to differ by definition in unguarded nests (linear mixed models, nest pairs as random intercept). It is notable that the difference in touches approaches significance, given our small sample size (n = 10, p = 0.13).
+
+```{r}
+# linear model
+# set pair as random intercept
+behaviors <- select(nest_obs, approach, touch, multiple.bees, guard, fight, deep.entry)
+
+# lmer(behaviors$approach~nest_obs$nest_type +(1|nest_obs$pair))
+
+lmer_function <- function(y){
+  lmer(y~nest_obs$nest_type + (1|nest_obs$pair))
+  }
+
+coefs_function <- function(x){
+  coefs <- data.frame(coef(summary(x)))
+  coefs$p.value <- 2 * (1 - pnorm(abs(coefs$t.value)))
+  return(coefs)
+}
+results <- data.frame()
+
+
+mods <- lapply(behaviors, FUN = lmer_function)
+coefs_list <- lapply(mods, coefs_function)
+
+results <- rbind(data.frame(coefs_list$approach[2,]),
+                 data.frame(coefs_list$touch[2,]),
+                 data.frame(coefs_list$multiple.bees[2,]),
+                 data.frame(coefs_list$guard[2,]),
+                 data.frame(coefs_list$fight[2,]),
+                 data.frame(coefs_list$deep.entry[2,]))
+
+results$behavior <- c(colnames(behaviors))
+rownames(results) <- c()
+results <- arrange(results) %>% select(behavior, Std..Error, t.value, p.value)
+kable(results)
+```
+
+
+
+
